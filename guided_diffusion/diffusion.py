@@ -385,42 +385,26 @@ class Diffusion(object):
 
             img_ind = img_ind + 1
 
-#            if deg == 'motion_deblur':
-#                # Create different motion for every image
-#                np.random.seed(seed=img_ind * 10)  # for reproducibility of blur kernel for each image
-#                kernel = torch.from_numpy(Kernel(size=(61, 61), intensity=0.5).kernelMatrix)
-#                A_funcs = Deblurring_fft(kernel / kernel.sum(), config.data.channels, self.config.data.image_size, self.device)
-#                np.random.seed(seed=args.seed) # Back to original seed for reproducibility
-#
-#            x_orig = x_orig.to(self.device)
-#            x_orig = data_transform(self.config, x_orig)
-#
-#            y = A_funcs.A(x_orig)
-#            
-#            y = y + args.sigma_y*torch.randn_like(y).cuda()  # added noise to measurement
 
-            # --- [修改开始]：集成外部模糊核读取逻辑 ---
+            # 集成外部模糊核读取逻辑
             # 设置模糊核存放目录
             kernel_dir = os.path.join(self.args.exp, "kernels")
             os.makedirs(kernel_dir, exist_ok=True)
             # 假设文件名与图片索引对应，例如 kernel_0.png
             kernel_path = os.path.join(kernel_dir, f"kernel_{img_ind}.png")
 
+            # --- [修改开始]：应用单一全局模糊核 ---
             if deg == 'motion_deblur':
+                # ⚠️ 将这里替换为你存放 31x31 模糊核的实际路径
+                kernel_path = '/content/kernel.png' 
+                
                 if os.path.exists(kernel_path):
-                    # 如果 SelfDeblur 已经算好了核并放在这里
                     import cv2
                     # 读取单通道灰度图形式的模糊核
                     kernel_img = cv2.imread(kernel_path, 0)
                     kernel = torch.from_numpy(kernel_img).float().to(self.device)
-                    print(f"成功加载预估模糊核: {kernel_path}")
                 else:
-                    # 如果还没算好，暂时回退到原来的随机生成逻辑，确保程序能跑通流程
-                    from functions.motionblur import Kernel
-                    np.random.seed(seed=img_ind * 10)
-                    kernel = torch.from_numpy(Kernel(size=(61, 61), intensity=0.5).kernelMatrix)
-                    np.random.seed(seed=args.seed)
-                    print(f"未找到预估核，使用随机核占位: {kernel_path}")
+                    raise FileNotFoundError(f"找不到模糊核文件，请务必检查路径: {kernel_path}")
                 
                 from functions.fft_operators import Deblurring_fft
                 A_funcs = Deblurring_fft(kernel / kernel.sum(), config.data.channels, self.config.data.image_size, self.device)
@@ -428,10 +412,8 @@ class Diffusion(object):
             x_orig = x_orig.to(self.device)
             x_orig = data_transform(self.config, x_orig)
 
-            # 关键修改：跳过二次模糊，直接将输入的 test0.jpg 赋值给 y
-            # 【重要修复】：必须展平以匹配下文 b, hwc = y.size() 的解包操作！
+            # 关键修改：跳过二次模糊，直接将输入的切割小图赋值给 y
             y = x_orig.clone().view(x_orig.size(0), -1) 
-            
             # --- [修改结束] ---
 
             b, hwc = y.size()
